@@ -5,10 +5,10 @@ function LSTM.lstm(input_size, rnn_size, n, dropout)
 
   -- there will be 2*n+1 inputs
   local inputs = {}
-  table.insert(inputs, nn.Identity()()) -- x
+  table.insert(inputs, nn.Identity()():annotate( { name='X' })) -- x
   for L = 1,n do
-    table.insert(inputs, nn.Identity()()) -- prev_c[L]
-    table.insert(inputs, nn.Identity()()) -- prev_h[L]
+    table.insert(inputs, nn.Identity()():annotate( { name="prev_c"..L })) -- prev_c[L]
+    table.insert(inputs, nn.Identity()():annotate( { name="prev_h"..L })) -- prev_h[L]
   end
 
   local x, input_size_L
@@ -27,25 +27,26 @@ function LSTM.lstm(input_size, rnn_size, n, dropout)
       input_size_L = rnn_size
     end
     -- evaluate the input sums at once for efficiency
-    local i2h = nn.Linear(input_size_L, 4 * rnn_size)(x)
-    local h2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h)
-    local all_input_sums = nn.CAddTable()({i2h, h2h})
+    local i2h = nn.Linear(input_size_L, 4 * rnn_size)(x):annotate({ name="i2h" })
+    local h2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h):annotate({ name="h2h" })
+    local all_input_sums = nn.CAddTable()({i2h, h2h}):annotate({ name="all_input_sums" })
     -- decode the gates
-    local sigmoid_chunk = nn.Narrow(2, 1, 3 * rnn_size)(all_input_sums)
+    local sigmoid_chunk = nn.Narrow(2, 1, 3 * rnn_size)(all_input_sums):annotate({ name="sigmoid chunk" })
     sigmoid_chunk = nn.Sigmoid()(sigmoid_chunk)
-    local in_gate = nn.Narrow(2, 1, rnn_size)(sigmoid_chunk)
-    local forget_gate = nn.Narrow(2, rnn_size + 1, rnn_size)(sigmoid_chunk)
-    local out_gate = nn.Narrow(2, 2 * rnn_size + 1, rnn_size)(sigmoid_chunk)
+    local in_gate = nn.Narrow(2, 1, rnn_size)(sigmoid_chunk):annotate({ name="in_gate" })
+    local forget_gate = nn.Narrow(2, rnn_size + 1, rnn_size)(sigmoid_chunk):annotate({ name="forget_gate" })
+    local out_gate = nn.Narrow(2, 2 * rnn_size + 1, rnn_size)(sigmoid_chunk):annotate({ name="out_gate" })
     -- decode the write inputs
-    local in_transform = nn.Narrow(2, 3 * rnn_size + 1, rnn_size)(all_input_sums)
-    in_transform = nn.Tanh()(in_transform)
+    local in_transform = nn.Narrow(2, 3 * rnn_size + 1, rnn_size)(all_input_sums):annotate({ name="in_xform" })
+    in_transform = nn.Tanh()(in_transform):annotate({ name="Decode the write inputs" })
     -- perform the LSTM update
     local next_c           = nn.CAddTable()({
-        nn.CMulTable()({forget_gate, prev_c}),
-        nn.CMulTable()({in_gate,     in_transform})
-      })
+        nn.CMulTable()({forget_gate, prev_c}):annotate( { name="forget * prev_c" }),
+        nn.CMulTable()({in_gate,     in_transform}):annotate( { name="in_gate * in_xform " })
+      }):annotate({ name="Perform the LSTM update" })
     -- gated cells form the output
-    local next_h = nn.CMulTable()({out_gate, nn.Tanh()(next_c)})
+    local next_h = nn.CMulTable()({out_gate, nn.Tanh()(next_c)}):annotate( {
+        name="Gated cells form the output" })
     
     table.insert(outputs, next_c)
     table.insert(outputs, next_h)
